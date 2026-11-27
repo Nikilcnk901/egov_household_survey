@@ -97,8 +97,8 @@
 | Day 2 – Session 1 | 60 minutes |
 | Day 2 – Session 2 | 30 minutes |
 | Day 2 – Session 3 | 45 minutes |
-| Day 2 – Session 4 | 40 minutes |
-| **Total** | **235 minutes (3 hours 55 minutes)** |
+| Day 2 – Session 4 | 45 minutes |
+| **Total** | **240 minutes (4 hours)** |
 
 The recorded work sessions total 3 hours and 55 minutes, within the four-hour assignment limit.
 
