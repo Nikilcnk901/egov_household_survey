@@ -100,7 +100,6 @@
 | Day 2 – Session 4 | 45 minutes |
 | **Total** | **240 minutes (4 hours)** |
 
-The recorded work sessions total 3 hours and 55 minutes, within the four-hour assignment limit.
 
 ## 2. Architecture
 
