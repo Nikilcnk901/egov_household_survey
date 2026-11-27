@@ -80,7 +80,7 @@
 
 - **Start time:** 3:20 PM IST
 - **Stop time:** 4:00 PM IST
-- **Duration:** 40 minutes
+- **Duration:** 45 minutes
 
 **Completed:**
 - Manually tested the Retry flow.
