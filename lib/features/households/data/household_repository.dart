@@ -7,6 +7,26 @@ import '../domain/household.dart';
 import '../../sync/data/sync_repository.dart';
 import '../../sync/domain/sync_operation.dart';
 
+/// The returned server ID is already stored on a different local household.
+class ServerIdMappingConflictException implements Exception {
+  const ServerIdMappingConflictException({
+    required this.serverId,
+    required this.householdId,
+    required this.existingHouseholdId,
+  });
+
+  final String serverId;
+  final String householdId;
+  final String existingHouseholdId;
+
+  @override
+  String toString() {
+    return 'ServerIdMappingConflictException: server ID $serverId already '
+        'belongs to household $existingHouseholdId and cannot be mapped to '
+        '$householdId';
+  }
+}
+
 class HouseholdRepository {
   final AppDatabase _appDatabase;
   final ApiService _apiService;
@@ -330,6 +350,21 @@ class HouseholdRepository {
         if (household.serverId != null && household.serverId != serverId) {
           throw StateError(
             'Household $householdId is already mapped to ${household.serverId}',
+          );
+        }
+
+        final ownerRows = await txn.query(
+          'households',
+          columns: ['id'],
+          where: 'server_id = ? AND id != ?',
+          whereArgs: [serverId, householdId],
+          limit: 1,
+        );
+        if (ownerRows.isNotEmpty) {
+          throw ServerIdMappingConflictException(
+            serverId: serverId,
+            householdId: householdId,
+            existingHouseholdId: ownerRows.single['id'] as String,
           );
         }
 

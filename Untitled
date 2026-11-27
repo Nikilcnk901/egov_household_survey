@@ -1,0 +1,175 @@
+# Implementation Plan – Offline-First Household Survey Capture
+
+## 1. Milestones and Time Allocation
+
+The assignment has a four-hour implementation limit. I will prioritise local data capture and the sync engine first, followed by the UI, testing, and documentation.
+
+| Time | Milestone | Expected outcome |
+|---|---|---|
+| 00:00–00:20 | Project setup | Review the API, configure the project, and prepare the database structure. |
+| 00:20–00:55 | Local storage | Implement household and operation storage, including transactional saves. |
+| 00:55–01:25 | Household screens | Implement the household list, create/edit form, and validation. |
+| 01:25–02:40 | Sync engine | Implement the queue, operation ordering, retries, duplicate handling, and parked states. |
+| 02:40–03:10 | Queue and connectivity UI | Add the Online/Offline switch, queue status, retry countdown, and manual retry. |
+| 03:10–03:40 | Testing | Add unit and widget tests for the main flows and important failure cases. |
+| 03:40–04:00 | Final checks | Update documentation, run tests, check the app, and review the code. |
+
+I will keep track of the actual time spent and note any features that need to be reduced or left for future work.
+
+## 2. Application Architecture
+
+I plan to keep the application simple, with separate responsibilities for the UI, local storage, API communication, and sync logic.
+
+**Technology stack**
+
+- Flutter and Dart for the application.
+- Cubit for screen state management.
+- SQLite (`sqflite`) for local persistence.
+- `http` for API communication.
+- `uuid` for generating household and operation IDs.
+
+**Main components**
+
+| Component | Responsibility |
+|---|---|
+| Household screens | Display households and handle create/edit forms. |
+| Households Cubit | Manage household list and form-related state. |
+| Sync Queue Cubit | Manage queue display and Online/Offline state. |
+| Database | Store household records, operations, and settings. |
+| Household Repository | Handle local household operations. |
+| Sync Engine | Select operations, communicate with the API, and update queue states. |
+| API Client | Handle requests and responses from the mock server. |
+
+The household screens will work with local data. The sync engine will handle communication with the server separately.
+
+## 3. Data Model
+
+I will use two main SQLite tables and a small settings table.
+
+### Households
+
+Stores the latest household details.
+
+| Field | Purpose |
+|---|---|
+| id | Unique household ID |
+| head_name | Head of household |
+| member_count | Number of household members |
+| settlement | Settlement name |
+| version | Server version |
+| updated_at | Last update timestamp |
+| last_seq | Last assigned operation sequence |
+
+### Operations
+
+Stores changes waiting to be synced.
+
+| Field | Purpose |
+|---|---|
+| op_id | Unique operation ID |
+| household_id | Related household |
+| type | Create or update |
+| seq | Operation sequence |
+| payload | Household data to send |
+| state | Pending, retrying, parked, blocked, or rejected |
+| attempt_count | Number of retryable failures |
+| next_retry_at | Next scheduled retry |
+| last_error | Last failure details |
+
+### Settings
+
+Stores the Online/Offline preference so that it is restored after an app restart.
+
+Household changes and their corresponding queue entries will be saved in the same database transaction.
+
+## 4. API Integration
+
+The app will use the following endpoints from the supplied mock API.
+
+| Method | Endpoint | Purpose |
+|---|---|---|
+| GET | `/households` | Load the initial household records |
+| GET | `/households/{id}` | Available for retrieving an individual household; not required for the main sync flow |
+| POST | `/sync` | Upload household operations |
+
+The sync request will contain an operation with:
+
+- `op_id`
+- `type`
+- `record_id`
+- `seq`
+- `payload`
+
+The client will send one operation per request.
+
+The server can return `applied`, `duplicate`, `stale`, or `rejected`. The sync engine will interpret these responses and update the local queue accordingly.
+
+The admin endpoints will be used outside the Flutter app to switch chaos scenarios during testing.
+
+## 5. Sync and Retry Strategy
+
+The sync engine will run while the application is active and the Online switch is enabled.
+
+The main flow will be:
+
+1. Read pending operations from SQLite.
+2. Check whether an operation is allowed to sync based on its household sequence.
+3. Send the operation using its existing `op_id`.
+4. Process the API response.
+5. Update or remove the queue entry based on the result.
+6. Allow the next operation for that household to proceed.
+
+Retryable failures will use exponential backoff. After five counted failures, an operation will be parked.
+
+HTTP 503 responses will respect the server's `Retry-After` header and will not consume the retry limit.
+
+If an earlier operation is parked, later operations for that household will remain blocked. Other households can continue syncing.
+
+## 6. Testing Strategy
+
+I will focus on testing the behaviours that are most important to this assignment.
+
+**Unit tests**
+- Household validation.
+- Creating and updating local records.
+- Operation ID and sequence handling.
+- Retry delays and maximum attempts.
+- Duplicate response handling.
+- Operation ordering and blocked states.
+- Recovery of queue state after restart.
+
+**Widget tests**
+- Household list display.
+- Create and edit form validation.
+- Online/Offline switch.
+- Queue status display.
+- Retry action for parked operations.
+
+**Manual API testing**
+
+I will use the supplied mock API to check the following scenarios:
+
+- `none`: Normal household sync.
+- `lost-ack`: Retry after the server applies an operation but drops the response.
+- `dup-delivery`: Handle duplicate request delivery.
+- `error-burst`: Retry after HTTP 503.
+- `slow-network`: Ensure requests complete without timing out.
+
+I will also check that pending operations remain available after closing and reopening the app.
+
+## 7. If I Had One More Day
+
+With another day, I would focus on improving reliability and covering cases that are difficult to complete within the initial time limit.
+
+- Add more integration tests against the actual mock API.
+- Improve handling of server restarts and local/server data mismatches.
+- Add better visibility into sync failures and operation history.
+- Improve the UI for parked and blocked operations.
+- Review database migrations and error recovery.
+- Test the application on both Android and iOS.
+
+The priority would be to improve reliability and test coverage rather than add unrelated features.
+
+---
+
+**Note:** This is the implementation plan. Actual completion status, test results, and any changes to the plan will be recorded during the implementation.

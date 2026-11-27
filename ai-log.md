@@ -86,6 +86,14 @@ How it was identified: Reviewing the manual testing results exposed queue-state 
 
 Correction: Additional tests were added for operation blocking, retry, dismissal, and queue reconciliation.
 
+Issue 5: Server ID Mapping Conflict After Mock API Restart
+
+During lost-ack testing, the mock API restarted and reused the server ID `hh-0031`, which was already mapped to another local household. This exposed a gap in the original local ID mapping logic.
+
+I reviewed the application logs and database state to identify the cause. I used Cursor to add a `ServerIdMappingConflictException` check before updating the local mapping. I then verified the fix with regression tests, and all 115 tests passed.
+
+The conflict guard prevents local data corruption, but the complete recovery flow remains unverified for this particular test because the mock API reused an ID after restarting.
+
 4. How AI Output Was Reviewed
 
 Reviewed generated code changes and their effect on existing functionality.

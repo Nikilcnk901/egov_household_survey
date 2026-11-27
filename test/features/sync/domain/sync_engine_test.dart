@@ -116,6 +116,100 @@ void main() {
     expect(saved.single.payload, operation.payload);
   });
 
+  test('a repeated create sync keeps the same server mapping', () async {
+    await _insertHousehold(database, 'local-1');
+    final operation = _operation(opId: 'op-create', householdId: 'local-1');
+    await _insertOperation(database, operation);
+    when(() => apiService.syncOperation(any())).thenAnswer(
+      (_) async => const SyncResult(
+        opId: 'op-create',
+        status: SyncResultStatus.duplicate,
+        serverHouseholdId: 'hh-0031',
+      ),
+    );
+
+    await engine.syncPendingOperations();
+    await engine.syncPendingOperations();
+
+    verify(() => apiService.syncOperation(any())).called(1);
+    final household = await householdRepository.getHouseholdById('local-1');
+    final saved = (await syncRepository.getOperationsForHousehold(
+      'local-1',
+    )).single;
+    expect(household!.id, 'local-1');
+    expect(household.serverId, 'hh-0031');
+    expect(saved.state, 'completed');
+    expect(saved.opId, operation.opId);
+    expect(saved.seq, operation.seq);
+    expect(saved.payload, operation.payload);
+  });
+
+  test('a reused server id does not complete the conflicting create', () async {
+    await _insertHousehold(
+      database,
+      'dfb07d69-79c5-4908-bccf-da6789ec2648',
+      serverId: 'hh-0031',
+    );
+    await _insertHousehold(database, 'd31e3ba0-c982-419a-937f-f58bf1b9afb4');
+    final nextRetryAt = DateTime.utc(2020, 1, 1);
+    final operation = _operation(
+      opId: 'op-create',
+      householdId: 'd31e3ba0-c982-419a-937f-f58bf1b9afb4',
+      payload: const {
+        'head_name': 'Lost Ack Final Test',
+        'member_count': 4,
+        'settlement': 'Test',
+      },
+      state: 'retrying',
+      attemptCount: 1,
+      nextRetryAt: nextRetryAt,
+      lastError: 'Connection closed before full header was received',
+    );
+    await _insertOperation(database, operation);
+    when(() => apiService.syncOperation(any())).thenAnswer(
+      (_) async => const SyncResult(
+        opId: 'op-create',
+        status: SyncResultStatus.duplicate,
+        serverHouseholdId: 'hh-0031',
+      ),
+    );
+
+    await expectLater(
+      engine.syncPendingOperations(),
+      throwsA(
+        isA<ServerIdMappingConflictException>().having(
+          (error) => error.existingHouseholdId,
+          'existingHouseholdId',
+          'dfb07d69-79c5-4908-bccf-da6789ec2648',
+        ),
+      ),
+    );
+
+    final current = await householdRepository.getHouseholdById(
+      'd31e3ba0-c982-419a-937f-f58bf1b9afb4',
+    );
+    final owner = await householdRepository.getHouseholdById(
+      'dfb07d69-79c5-4908-bccf-da6789ec2648',
+    );
+    final saved = (await syncRepository.getOperationsForHousehold(
+      'd31e3ba0-c982-419a-937f-f58bf1b9afb4',
+    )).single;
+    expect(current!.serverId, isNull);
+    expect(current.headName, 'Asha Noor');
+    expect(owner!.serverId, 'hh-0031');
+    expect(owner.headName, 'Asha Noor');
+    expect(saved.state, 'retrying');
+    expect(saved.opId, operation.opId);
+    expect(saved.seq, operation.seq);
+    expect(saved.payload, operation.payload);
+    expect(saved.attemptCount, 1);
+    expect(saved.nextRetryAt, nextRetryAt);
+    expect(
+      saved.lastError,
+      'Connection closed before full header was received',
+    );
+  });
+
   test('a successful update completes its operation', () async {
     await _insertHousehold(database, 'local-1', serverId: 'hh-0001');
     final operation = _operation(

@@ -113,12 +113,13 @@ The initial fetch is also triggered when switching from Offline to Online mode.
 - Persistent server-side idempotency across a mock API restart, since the supplied API keeps processed operation IDs in memory.
 - Authentication and user management, since they are not required by the assignment.
 
-## 4. Implementation Limitations and Pending Verification
+### Lost Acknowledgement and Duplicate Recovery
 
-The following items should be considered when reviewing the implementation:
+The lost-ack scenario was manually tested. The server successfully applied the CREATE operation but dropped the response before the client received it.
 
-- **Lost acknowledgement recovery:** The recovery approach is implemented in the sync design, but a complete manual test using the `lost-ack` scenario was not completed within the available time.
-- **Duplicate CREATE response with an error:** An issue was identified where a duplicate CREATE response without a server ID could cause the operation to remain pending. A focused fix was prepared; final test verification is pending.
-- **Slow network:** The request timeout and error-handling behaviour are implemented, but full manual verification under the `slow-network` scenario remains pending.
-- **Server restart recovery:** Client-side persistence is implemented. Recovery across a server restart that loses its in-memory operation history is outside the supported mock API behaviour.
+- The client retained the original `op_id` and retried the same operation.
+- The server returned `duplicate` with the previously assigned server ID, confirming that the operation was not applied twice.
+- During local ID mapping, a conflict was detected because the mock API reused `hh-0031` after its restart, while the local database already associated that ID with another household.
+- A `ServerIdMappingConflictException` was added to prevent overwriting an existing mapping or corrupting local data.
 
+**Limitation:** The server-side duplicate protection was verified, but complete client-side recovery could not be verified in this test because the mock API reused an ID after restarting. In production, server-generated IDs should remain unique and stable across restarts.

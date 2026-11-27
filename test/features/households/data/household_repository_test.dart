@@ -972,10 +972,19 @@ void main() {
   });
 
   test(
-    'rolls back queued record ids when the server id is already used',
+    'a server id owned by another household is a mapping conflict',
     () async {
-      final mapped = _household(id: 'hh-0001', serverId: 'hh-0001');
-      final local = _household(id: 'local-uuid', lastSeq: 2);
+      final nextRetryAt = DateTime.utc(2026, 11, 27, 12);
+      final mapped = _household(
+        id: 'dfb07d69-79c5-4908-bccf-da6789ec2648',
+        serverId: 'hh-0031',
+        headName: 'Ramesh Kumar',
+      );
+      final local = _household(
+        id: 'd31e3ba0-c982-419a-937f-f58bf1b9afb4',
+        headName: 'Lost Ack Final Test',
+        lastSeq: 2,
+      );
       await householdRepository.createHousehold(mapped);
       await householdRepository.createHousehold(local);
 
@@ -984,6 +993,15 @@ void main() {
         householdId: local.id,
         type: 'create',
         seq: 1,
+        state: 'retrying',
+        attemptCount: 1,
+        nextRetryAt: nextRetryAt,
+        lastError: 'Connection closed before full header was received',
+        payload: const {
+          'head_name': 'Lost Ack Final Test',
+          'member_count': 4,
+          'settlement': 'Test',
+        },
       );
       final update = _operation(
         opId: 'op-update',
@@ -998,29 +1016,43 @@ void main() {
         householdRepository.completeCreateOperation(
           opId: create.opId,
           householdId: local.id,
-          serverId: mapped.serverId!,
+          serverId: 'hh-0031',
         ),
-        throwsA(isA<DatabaseException>()),
+        throwsA(
+          isA<ServerIdMappingConflictException>()
+              .having((error) => error.serverId, 'serverId', 'hh-0031')
+              .having((error) => error.householdId, 'householdId', local.id)
+              .having(
+                (error) => error.existingHouseholdId,
+                'existingHouseholdId',
+                mapped.id,
+              ),
+        ),
       );
 
       final saved = await householdRepository.getHouseholdById(local.id);
+      final owner = await householdRepository.getHouseholdById(mapped.id);
       final operations = await syncRepository.getOperationsForHousehold(
         local.id,
       );
       expect(saved!.id, local.id);
       expect(saved.serverId, isNull);
-      expect(operations.map((operation) => operation.state), [
-        'pending',
-        'pending',
-      ]);
-      expect(operations.map((operation) => operation.recordId), [null, null]);
-      expect(operations.map((operation) => operation.householdId).toSet(), {
-        local.id,
-      });
+      expect(saved.headName, 'Lost Ack Final Test');
+      expect(owner!.id, mapped.id);
+      expect(owner.serverId, 'hh-0031');
+      expect(owner.headName, 'Ramesh Kumar');
+      expect(operations.first.opId, create.opId);
+      expect(operations.first.state, 'retrying');
+      expect(operations.first.seq, 1);
+      expect(operations.first.payload, create.payload);
+      expect(operations.first.attemptCount, 1);
+      expect(operations.first.nextRetryAt, nextRetryAt);
       expect(
-        (await householdRepository.getHouseholdById(mapped.id))!.serverId,
-        'hh-0001',
+        operations.first.lastError,
+        'Connection closed before full header was received',
       );
+      expect(operations.last.state, 'pending');
+      expect(operations.last.recordId, isNull);
     },
   );
 }
@@ -1074,6 +1106,7 @@ SyncOperation _operation({
   Map<String, dynamic>? payload,
   String state = 'pending',
   int attemptCount = 0,
+  DateTime? nextRetryAt,
   String? lastError,
   DateTime? createdAt,
 }) {
@@ -1091,6 +1124,7 @@ SyncOperation _operation({
         },
     state: state,
     attemptCount: attemptCount,
+    nextRetryAt: nextRetryAt,
     lastError: lastError,
     createdAt: createdAt ?? DateTime.utc(2026, 11, 26, 9),
   );
